@@ -1,3 +1,6 @@
+### using CNN 1D to classify an 1 dimensional data in 9 steps ##################
+
+
 #1. import the dataset from excel
 import pandas as pd
 df = pd.read_excel("../Datensätze/BA_DATENSATZ_2.xlsx", sheet_name=3)
