@@ -1,0 +1,132 @@
+### using LSTM 1D to classify an 1 dimesional data in 10 steps ##################
+
+
+#1. import the dataset from excel
+import pandas as pd
+
+df = pd.read_excel("../Datensätze/BA_DATENSATZ_2.xlsx", sheet_name=3)
+
+
+
+#2. convert the dataset in an array
+import numpy as np
+
+anzahl_zeile = 551
+spalten_start = 62
+spalten_ende = 332
+anzahl_spalte = spalten_ende - spalten_start
+
+### weg in mm
+x_weg = np.array(df.iloc[552, spalten_start:spalten_ende])
+
+### kraft in kN
+y_kraft = np.zeros((anzahl_zeile) * anzahl_spalte).reshape((anzahl_zeile), anzahl_spalte)
+
+### speichern kraftverlauf in einer matrix
+for i in range(0, anzahl_zeile):
+    y_kraft[i] = df.iloc[i, spalten_start:spalten_ende]
+    
+    
+#3. create the features and labels 
+### X: Kraftverlaufsmatrix
+X = y_kraft
+
+### Y: label der Klassen
+Y = df["Klassennummer"].values[:anzahl_zeile]
+
+
+#4. convert the labels with one-hot-encoding
+from keras.utils import to_categorical
+Y = to_categorical(Y)
+
+
+#5. transform the feature 1D press-in curves into a sequential data (LSTM 1D requires such an input) 
+kraft_sequenz = 50
+anzahl_sequenzen = len(x_weg) - kraft_sequenz
+###                   270   -     50  
+
+X_train_seq = []   
+    
+# bilden von sequenzen in den zeilen
+for i in range(0, len(X)):
+    for j in range(0, anzahl_sequenzen):
+        X_train_seq.append(X[i][j:j + kraft_sequenz])
+        
+X_train_seq = np.array(X_train_seq).reshape(anzahl_zeile, anzahl_sequenzen, kraft_sequenz)
+
+
+#6. shuffle the features and labels
+from sklearn.model_selection import train_test_split
+
+x_train, x_test, y_train, y_test = train_test_split(X_train_seq, Y, random_state=1, test_size=0.2, shuffle=True)
+
+
+#7. buld a LSTM 1D model
+
+from keras.models import Sequential
+from keras.layers import Dense, Conv1D, LSTM, Flatten, MaxPooling1D, Dropout
+from keras.callbacks import EarlyStopping
+
+es = EarlyStopping(monitor="loss", patience=50, verbose=1)
+
+def get_model():
+        
+    model = Sequential()
+
+    model.add(LSTM(32, return_sequences=True, use_bias=True, input_shape=(anzahl_sequenzen, kraft_sequenz)))
+    model.add(MaxPooling1D(3))                                                 
+    
+    model.add(LSTM(16, return_sequences=True, use_bias=True))
+    model.add(MaxPooling1D(3))
+
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+
+    model.add(Dense(200, activation="relu"))
+    model.add(Dense(100, activation="relu"))
+
+    model.add(Dropout(0.25))
+
+    model.add(Dense(7, activation="softmax")) 
+
+    model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+
+    return model
+    
+    
+#8. train and evaluate the model
+history = model.fit(x_train, y_train, epochs=200, batch_size=1024, validation_split=0.2, callbacks=[es])
+print(model.evaluate(x_test, y_test))
+
+
+#9. plot a loss and accuracy graph to control the training precess
+plt.figure(figsize=(10,7))
+plt.title('Loss CNN', fontsize=30)
+plt.plot(history.history['loss'], label='train', linewidth=3)
+plt.plot(history.history['val_loss'], label='val', linewidth=3)
+plt.legend(loc='upper right', fontsize=30)
+plt.tick_params(axis="x", labelsize=16)
+plt.tick_params(axis="y", labelsize=16)
+plt.show()
+
+plt.figure(figsize=(10, 7))
+plt.title('Accuracy', fontsize="xx-large")
+plt.plot(history.history['accuracy'], label='train', linewidth=3)
+plt.plot(history.history['val_accuracy'], label='val', linewidth=3)
+plt.legend(loc='upper left', fontsize="xx-large")
+plt.show()
+
+
+#10. use confusion matrix to evaluate your model and find the weakness of your buld model
+from pandas_ml import ConfusionMatrix
+pred_classes = model.predict_classes(x_test.reshape(-1, anzahl_spalte, 1))
+
+y_converted = np.argmax(y_test, axis=1)
+
+ConfusionMatrix(y_converted, pred_classes)
+
+
+from sklearn.metrics import classification_report
+report = classification_report(y_converted, pred_classes)
+print(report)
